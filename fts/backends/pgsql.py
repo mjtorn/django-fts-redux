@@ -119,7 +119,7 @@ class SearchManager(BaseManager):
         rank_normalization = kwargs.get('rank_normalization', 32)
         
         ts_query = "plainto_tsquery('%s','%s')" % (self.language, unicode(query).replace("'", "''"))
-        where = "\"%s\" @@ %s" % (self.vector_field.column, ts_query)
+        where = '"%s"."%s" @@ %s' % (self.model._meta.db_table, self.vector_field.column, ts_query)
         
         select = {}
         order = []
