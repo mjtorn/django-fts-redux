@@ -7,14 +7,14 @@ from django.contrib.contenttypes import generic
 from fts.settings import *
 
 if FTS_BACKEND.startswith('simple://'):
-    class IndexWord(models.Model):
+    class Word(models.Model):
         word = models.CharField(unique=True, db_index=True, blank=False, max_length=100)
         
         def __unicode__(self):
             return u"%s" % (self.word)
     
     class Index(models.Model):
-        word = models.ForeignKey(IndexWord)
+        word = models.ForeignKey(Word)
         weight = models.IntegerField()
         
         content_type = models.ForeignKey(ContentType)

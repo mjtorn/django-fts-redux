@@ -25,12 +25,12 @@ LANGUAGES = {
     'tr' : 'turkish',
 }
 
-class _VectorField(models.Field):
+class VectorField(models.Field):
     def __init__(self, *args, **kwargs):
         kwargs['null'] = True
         kwargs['editable'] = False
         kwargs['serialize'] = False
-        super(_VectorField, self).__init__(*args, **kwargs)
+        super(VectorField, self).__init__(*args, **kwargs)
     
     def db_type(self):
         return 'tsvector'
@@ -52,15 +52,15 @@ class SearchManager(BaseManager):
 
     def _vector_field(self):
         """
-        Returns the _VectorField defined for this manager's model. There must be exactly one _VectorField defined.
+        Returns the VectorField defined for this manager's model. There must be exactly one VectorField defined.
         """
         if self._vector_field_cache is not None:
             return self._vector_field_cache
         
-        vectors = [f for f in self.model._meta.fields if isinstance(f, _VectorField)]
+        vectors = [f for f in self.model._meta.fields if isinstance(f, VectorField)]
         
         if len(vectors) != 1:
-            raise ValueError('There must be exactly 1 _VectorField defined for the %s model.' % self.model._meta.object_name)
+            raise ValueError('There must be exactly 1 VectorField defined for the %s model.' % self.model._meta.object_name)
             
         self._vector_field_cache = vectors[0]
         
@@ -133,6 +133,6 @@ class SearchableModel(BaseModel):
     class Meta:
         abstract = True
 
-    search_index = _VectorField()
+    search_index = VectorField()
 
     objects = SearchManager()
