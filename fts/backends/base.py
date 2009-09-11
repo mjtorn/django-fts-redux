@@ -29,6 +29,8 @@ class BaseManager(models.Manager):
             self.language_code = translation.get_language().split('-',1)[0].lower()
         
     def __call__(self, query, **kwargs):
+        if not query:
+            return self # template variable resolver expects the object itself (no arguments)
         return self.search(query, **kwargs)
 
     def contribute_to_class(self, cls, name):
