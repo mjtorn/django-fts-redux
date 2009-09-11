@@ -124,7 +124,7 @@ class SearchManager(BaseManager):
         select = {}
         order = []
         if rank_field is not None:
-            select[rank_field] = 'ts_rank("%s", %s, %d)' % (self.vector_field.column, ts_query, rank_normalization)
+            select[rank_field] = 'ts_rank("%s"."%s", %s, %d)' % (self.model._meta.db_table, self.vector_field.column, ts_query, rank_normalization)
             order = ['-%s' % rank_field]
         
         return self.all().extra(select=select, where=[where], order_by=order)
