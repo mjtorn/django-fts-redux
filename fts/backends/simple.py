@@ -89,7 +89,7 @@ class SearchManager(BaseManager):
                 words += 1
                 p = Stemmer(self.language_code)
                 word = p(word)
-                joins.append("INNER JOIN %%(index_table_name)s AS w%(words)d ON (w%(words)d.word LIKE '%%%%s%%%%%%%%') INNER JOIN %%(index_table_name)s AS i%(words)d ON (w%(words)d.id = i%(words)d.word_id AND i%(words)d.content_type_id = %%(content_type_id)s AND i%(words)d.object_id = %%(table_name)s.id)" % { 'words':words })
+                joins.append("INNER JOIN %%(words_table_name)s AS w%(words)d ON (w%(words)d.word LIKE '%%%%s%%%%%%%%') INNER JOIN %%(index_table_name)s AS i%(words)d ON (w%(words)d.id = i%(words)d.word_id AND i%(words)d.content_type_id = %%(content_type_id)s AND i%(words)d.object_id = %%(table_name)s.id)" % { 'words':words })
                 joins_params.append(word)
         
         table_name = self.model._meta.db_table
