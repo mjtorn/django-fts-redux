@@ -117,6 +117,7 @@ class SearchManager(BaseManager):
         """
         rank_field = kwargs.get('rank_field')
         rank_normalization = kwargs.get('rank_normalization', 32)
+        qs = self.get_query_set()
         
         ts_query = "plainto_tsquery('%s','%s')" % (self.language, unicode(query).replace("'", "''"))
         where = '"%s"."%s" @@ %s' % (self.model._meta.db_table, self.vector_field.column, ts_query)
@@ -127,7 +128,7 @@ class SearchManager(BaseManager):
             select[rank_field] = 'ts_rank("%s"."%s", %s, %d)' % (self.model._meta.db_table, self.vector_field.column, ts_query, rank_normalization)
             order = ['-%s' % rank_field]
         
-        return self.all().extra(select=select, where=[where], order_by=order)
+        return qs.extra(select=select, where=[where], order_by=order)
 
 class SearchableModel(BaseModel):
     class Meta:

@@ -58,7 +58,7 @@ class SearchManager(BaseManager):
 
     def search(self, query, **kwargs):
         rank_field = kwargs.get('rank_field')
-        qs = self.all()
+        qs = self.get_query_set()
         
         joins = []
         weights = []
@@ -86,6 +86,7 @@ class SearchManager(BaseManager):
         }
         # these params should be set as form params to be returned by get_from_clause() but it doesn't support form params
         joins = joins % tuple(joins_params)
+        
         # monkey patch the query set:
         qs.query.table_alias(table_name) # create alias
         qs.query.alias_map[table_name] = (table_name, joins, None, None, None, None, None) # map the joins to the alias
@@ -95,7 +96,7 @@ class SearchManager(BaseManager):
             order = []
             select[rank_field] = '+'.join(weights)
             order = ['-%s' % rank_field]
-            return qs.extra(select=select, order_by=order)
+            qs = qs.extra(select=select, order_by=order)
         
         return qs
 

@@ -19,6 +19,8 @@ class SearchManager(BaseManager):
         pass
 
     def search(self, query, **kwargs):
+        qs = self.get_query_set()
+        
         params = Q()
         for w in set(query.lower().split(' ')):
             if w and w not in FTS_STOPWORDS[self.language_code]:
@@ -26,7 +28,8 @@ class SearchManager(BaseManager):
                 w = p(w)
                 for field in self._fields.keys():
                     params &= Q(**{'%s__icontains' % field: w})
-        return self.filter(params)
+        
+        return qs.filter(params)
 
 class SearchableModel(BaseModel):
     class Meta:
