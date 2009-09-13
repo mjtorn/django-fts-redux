@@ -61,8 +61,7 @@ class BaseManager(models.Manager):
         """
         Return the names of all CharField and TextField fields defined for this manager's model.
         """
-        fields = [f for f in self.model._meta.fields if isinstance(f, (models.CharField, models.TextField))]
-        return [f.name for f in fields]
+        return [f.name for f in self.model._meta.fields if isinstance(f, (models.CharField, models.TextField))]
 
 class BaseModel(models.Model):
     """

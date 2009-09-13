@@ -9,8 +9,8 @@ from django.db import transaction
 from fts.backends.base import BaseClass, BaseModel, BaseManager
 from fts.models import Word, Index
 
+import unicodedata
 from fts.words.stop import FTS_STOPWORDS
-
 try:
     from fts.words.snowball import Stemmer
 except ImportError:
@@ -28,6 +28,35 @@ class SearchClass(BaseClass):
         self.backend = 'simple'
 
 class SearchManager(BaseManager):
+    def __init__(self, **kwargs):
+        super(SearchManager, self).__init__(**kwargs)
+        self.full_index = kwargs.get('full_index', False)
+        self.stem_words = kwargs.get('stem_words', True)
+
+    def _get_idx_words(self, line, minlen=0):
+        words = self._get_words(line, minlen)
+        if self.full_index:
+            # Find all the substrings of the word
+            def substrings(word):
+                for i in range(len(word)):
+                    for j in range(i+1, len(word)+1):
+                        yield word[i:j]
+            words = set( perm for word in words for perm in substrings(word) if len(perm) > minlen )
+        return words
+    
+    def _get_words(self, line, minlen=0):
+        # Remove accents
+        line = ''.join((c for c in unicodedata.normalize('NFD', unicode(line)) if unicodedata.category(c) != 'Mn'))
+        # Lowercase and split in a set of words
+        words = set(line.lower().split())
+        # Stemmer function
+        if self.stem_words:
+            stem = Stemmer(self.language_code)
+        else:
+            stem = lambda w: w
+        # Get stemmed set of words not in the list of stop words and with a minimum of a minlen length
+        return set( stem(word) for word in words if word and word not in FTS_STOPWORDS[self.language_code] and len(word) > minlen )
+        
     @transaction.commit_on_success
     def update_index(self, pk=None):
         if pk is not None:
@@ -44,17 +73,14 @@ class SearchManager(BaseManager):
         IW = {}
         for item in items:
             for field, weight in self._fields.items():
-                for word in set(getattr(item, field).lower().split(' ')):
-                    if word and word not in FTS_STOPWORDS[self.language_code]:
-                        p = Stemmer(self.language_code)
-                        word = p(word)
-                        try:
-                            iw = IW[word];
-                        except KeyError:
-                            iw = Word.objects.get_or_create(word=word)[0]
-                            IW[w] = iw
-                        i = Index(content_object=item, word=iw, weight=WEIGHTS[weight])
-                        i.save()
+                for word in self._get_idx_words(getattr(item, field)):
+                    try:
+                        iw = IW[word];
+                    except KeyError:
+                        iw = Word.objects.get_or_create(word=word)[0]
+                        IW[word] = iw
+                    i = Index(content_object=item, word=iw, weight=WEIGHTS[weight])
+                    i.save()
 
     def search(self, query, **kwargs):
         rank_field = kwargs.get('rank_field')
@@ -63,15 +89,14 @@ class SearchManager(BaseManager):
         joins = []
         weights = []
         joins_params = []
-        words = 0
-        for word in set(query.lower().split(' ')):
-            if word and word not in FTS_STOPWORDS[self.language_code]:
-                words += 1
-                p = Stemmer(self.language_code)
-                word = p(word)
-                joins.append("INNER JOIN %%(words_table_name)s AS w%(words)d ON (w%(words)d.word LIKE '%%%%s%%%%%%%%%%%%%%%%') INNER JOIN %%(index_table_name)s AS i%(words)d ON (w%(words)d.id = i%(words)d.word_id AND i%(words)d.content_type_id = %%(content_type_id)s AND i%(words)d.object_id = %%(table_name)s.id)" % { 'words':words })
-                weights.append("i%(words)d.weight" % { 'words':words })
-                joins_params.append(word)
+        for idx, word in enumerate(self._get_words(query)):
+            if self.full_index:
+                joins.append("INNER JOIN %%(words_table_name)s AS w%(idx)d ON (w%(idx)d.word = %%%%s) INNER JOIN %%(index_table_name)s AS i%(idx)d ON (w%(idx)d.id = i%(idx)d.word_id AND i%(idx)d.content_type_id = %%(content_type_id)s AND i%(idx)d.object_id = %%(table_name)s.id)" % { 'idx':idx })
+                joins_params.append("'%s'" % word.replace("'", "''"))
+            else:
+                joins.append("INNER JOIN %%(words_table_name)s AS w%(idx)d ON (w%(idx)d.word LIKE %%%%s) INNER JOIN %%(index_table_name)s AS i%(idx)d ON (w%(idx)d.id = i%(idx)d.word_id AND i%(idx)d.content_type_id = %%(content_type_id)s AND i%(idx)d.object_id = %%(table_name)s.id)" % { 'idx':idx })
+                joins_params.append("'%s%%%%'" % word.replace("'", "''"))
+            weights.append("i%(idx)d.weight" % { 'idx':idx })
         
         table_name = self.model._meta.db_table
         words_table_name = qs.query.quote_name_unless_alias(Word._meta.db_table)

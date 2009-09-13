@@ -18,7 +18,7 @@ if FTS_BACKEND.startswith('simple://'):
         weight = models.IntegerField()
         
         content_type = models.ForeignKey(ContentType)
-        object_id = models.PositiveIntegerField()
+        object_id = models.PositiveIntegerField(db_index=True)
         content_object = generic.GenericForeignKey('content_type', 'object_id')
         
         def __unicode__(self):
