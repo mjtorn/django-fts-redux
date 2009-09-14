@@ -62,7 +62,9 @@ class Blog(fts.SearchableModel):
     # objects = fts.SearchManager()
 
     # You can pass a list of fields that should be indexed
-    # objects = SearchManager( fields=('title','body') )
+    # objects = fts.SearchManager( fields=('title','body') )
+    # The fields you pass as parameters can be foreign fields ('myfield__foreign_field')
+    # or even functions (functions should receive the instance as the only parameter)
     
     # You may also specify fields as a dictionary, mapping each field to a weight for ranking purposes
     # see http://www.postgresql.org/docs/8.3/static/textsearch-features.html#TEXTSEARCH-MANIPULATE-TSVECTOR
