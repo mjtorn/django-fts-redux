@@ -1,6 +1,7 @@
 "Pgsql Fts backend"
 
-from django.db import transaction
+from django.db import connection, transaction
+from django.db.models.fields import FieldDoesNotExist
 
 from fts.backends.base import InvalidFtsBackendError
 from fts.backends.base import BaseClass, BaseModel, BaseManager
@@ -67,46 +68,81 @@ class SearchManager(BaseManager):
         return self._vector_field_cache
     vector_field = property(_vector_field)
     
-    def _vector_sql(self, field, weight=None):
+    def _vector_sql(self, field, weight):
         """
         Returns the SQL used to build a tsvector from the given (django) field name.
         """
-        if weight is None:
-            weight = self.default_weight
-        f = self.model._meta.get_field(field)
-        return "setweight(to_tsvector('%s', coalesce(\"%s\",'')), '%s')" % (self.language, f.column, weight)
-    
-    @transaction.commit_on_success
-    def update_index(self, pk=None):
-        from django.db import connection
+        try:
+            f = self.model._meta.get_field(field)
+            return ("setweight(to_tsvector('%s', coalesce(\"%s\",'')), '%s')" % (self.language, f.column, weight), [])
+        except FieldDoesNotExist:
+            return ("setweight(to_tsvector('%s', %%s), '%s')" % (self.language, weight), [field])
+
+    def _update_index_update(self, pk=None):
         # Build a list of SQL clauses that generate tsvectors for each specified field.
         clauses = []
-        if self.fields is None:
-            self.fields = self._find_text_fields()
-            
-        if isinstance(self.fields, (list,tuple)):
-            for field in self.fields:
-                clauses.append(self._vector_sql(field))
-        else:
-            for field, weight in self.fields.items():
-                clauses.append(self._vector_sql(field, weight))
-        
+        params = []
+        for field, weight in self._fields.items():
+            v = self._vector_sql(field, weight)
+            clauses.append(v[0])
+            params.extend(v[1])
         vector_sql = ' || '.join(clauses)
         
         where = ''
         # If one or more pks are specified, tack a WHERE clause onto the SQL.
         if pk is not None:
             if isinstance(pk, (list,tuple)):
-                ids = ','.join([str(v) for v in pk])
+                ids = ','.join([int(v) for v in pk])
                 where = ' WHERE "%s" IN (%s)' % (self.model._meta.pk.column, ids)
             else:
-                where = ' WHERE "%s" = %s' % (self.model._meta.pk.column, pk)
+                where = ' WHERE "%s" = %d' % (self.model._meta.pk.column, pk)
         sql = 'UPDATE "%s" SET "%s" = %s%s' % (self.model._meta.db_table, self.vector_field.column, vector_sql, where)
         cursor = connection.cursor()
+        cursor.execute(sql, tuple(params))
         transaction.set_dirty()
-        cursor.execute(sql)
+
+    def _update_index_walking(self, pk=None):
+        if pk is not None:
+            if isinstance(pk, (list,tuple)):
+                items = self.filter(pk__in=pk)
+            else:
+                items = self.filter(pk=pk)
+        else:
+            items = self.all()
+        
+        IW = {}
+        for item in items:
+            clauses = []
+            params = []
+            for field, weight in self._fields.items():
+                if callable(field):
+                    words = field(item)
+                elif '__' in field:
+                    words = item
+                    for col in field.split('__'):
+                        words = getattr(words, col)
+                else:
+                    words = field
+                v = self._vector_sql(words, weight)
+                clauses.append(v[0])
+                params.extend(v[1])
+            vector_sql = ' || '.join(clauses)
+            sql = 'UPDATE "%s" SET "%s" = %s WHERE "%s" = %d' % (self.model._meta.db_table, self.vector_field.column, vector_sql, self.model._meta.pk.column, item.pk)
+            cursor = connection.cursor()
+            cursor.execute(sql, tuple(params))
+        transaction.set_dirty()
     
-    def search(self, query, **kwargs):
+    def _update_index(self, pk=None):
+        for field, weight in self._fields.items():
+            if callable(field) or '__' in field:
+                index_walking = True
+                break
+        if index_walking:
+            self._update_index_walking(pk)
+        else:
+            self._update_index_update(pk)
+    
+    def _search(self, query, **kwargs):
         """
         Returns a queryset after having applied the full-text search query. If rank_field
         is specified, it is the name of the field that will be put on each returned instance.

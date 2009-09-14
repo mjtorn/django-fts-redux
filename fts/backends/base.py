@@ -47,16 +47,23 @@ class BaseManager(models.Manager):
                 self._fields[field] = self.default_weight
         else:
             self._fields = fields
+    
+    def _update_index(self, pk):
+        raise NotImplementedError
 
+    def _search(self, query, **kwargs):
+        raise NotImplementedError
+    
+    @transaction.commit_on_success
     def update_index(self, pk=None):
         """
         Updates the full-text index for one, many, or all instances of this manager's model.
         """
-        raise NotImplementedError
-
+        return self._update_index(pk)
+    
     def search(self, query, **kwargs):
-        raise NotImplementedError
-
+        return self._search(query, **kwargs)
+    
     def _find_text_fields(self):
         """
         Return the names of all CharField and TextField fields defined for this manager's model.
@@ -72,19 +79,17 @@ class BaseModel(models.Model):
     """
     class Meta:
         abstract = True
-
+    
+    @transaction.commit_on_success
     def update_index(self):
         """
         Update the index.
         """
         if hasattr(self, '_search_manager'):
-            self._search_manager.update_index(pk=self.pk)
-
+            self._search_manager._update_index(pk=self.pk)
+    
     @transaction.commit_on_success
     def save(self, *args, **kwargs):
         super(BaseModel, self).save(*args, **kwargs)
-        if hasattr(self, '_auto_reindex'):
-            if self._auto_reindex:
-                self.update_index()
-        else:
-            self.update_index()
+        if getattr(self, '_auto_reindex', True):
+            self._search_manager._update_index(pk=self.pk)
