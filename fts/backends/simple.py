@@ -35,6 +35,7 @@ class SearchManager(BaseManager):
         self.full_index = kwargs.get('full_index', False)
         self.stem_words = kwargs.get('stem_words', True)
         self.exact_search = kwargs.get('exact_search', True)
+        self.namespace = kwargs.get('namespace', None)
 
     def _get_idx_words(self, line, minlen=0):
         words = self._get_words(line, minlen)
@@ -61,16 +62,22 @@ class SearchManager(BaseManager):
         return set( stem(word) for word in words if word and word not in FTS_STOPWORDS[self.language_code] and len(word) > minlen )
         
     def _update_index(self, pk):
+        if self.model._meta.abstract:
+            return # skip abstract class updates
+        
+        ctype = ContentType.objects.get_for_model(self.model)
+        filter = { 'content_type__pk': ctype.pk }
+        if self.namespace: filter['namespace'] = self.namespace
         if pk is not None:
-            if isinstance(pk, (list,tuple)):
+            if isinstance(pk, (set,list,tuple)):
+                filter['object_id__in'] = pk
                 items = self.filter(pk__in=pk)
             else:
+                filter['object_id'] = pk
                 items = self.filter(pk=pk)
-            items[0]._index.all().delete()
         else:
             items = self.all()
-            ctype = ContentType.objects.get_for_model(self.model)
-            Index.objects.filter(content_type__pk=ctype.id).delete()
+        Index.objects.filter(**filter).delete()
         
         IW = {}
         for item in items:
@@ -82,7 +89,15 @@ class SearchManager(BaseManager):
                     words = item
                     for col in field.split('__'):
                         words = getattr(words, col)
-                for word in self._get_idx_words(words):
+                # get all the possible substrings for words
+                idx_words = self._get_idx_words(words)
+                # of all those substrings, retrieve the missing ones in our IW dictionary
+                idx_words_to_get = [w for w in idx_words if IW.get(w) is None]
+                if len(idx_words_to_get):
+                    for iw in Word.objects.filter(word__in=idx_words_to_get):
+                        IW[iw.word] = iw
+                # finally, for each substring to index, build the index in item_words:
+                for word in idx_words:
                     try:
                         iw = IW[word];
                     except KeyError:
@@ -91,7 +106,7 @@ class SearchManager(BaseManager):
                     if ord(weight) < ord(item_words.get(iw, 'Z')):
                         item_words[iw] = weight
             for iw, weight in item_words.items():
-                Index.objects.create(content_object=item, word=iw, weight=WEIGHTS[weight])
+                Index.objects.create(content_object=item, word=iw, weight=WEIGHTS[weight], namespace=self.namespace)
 
     def _search(self, query, **kwargs):
         rank_field = kwargs.get('rank_field')
@@ -102,11 +117,21 @@ class SearchManager(BaseManager):
         joins_params = []
         for idx, word in enumerate(self._get_words(query)):
             if self.full_index or self.exact_search:
-                joins.append("INNER JOIN %%(words_table_name)s AS w%(idx)d ON (w%(idx)d.word = %%%%s) INNER JOIN %%(index_table_name)s AS i%(idx)d ON (w%(idx)d.id = i%(idx)d.word_id AND i%(idx)d.content_type_id = %%(content_type_id)s AND i%(idx)d.object_id = %%(table_name)s.id)" % { 'idx':idx })
                 joins_params.append("'%s'" % word.replace("'", "''"))
+                if self.namespace is not None:
+                    joins_params.append(u"'%s'" % self.namespace.replace("'", "''"))
+                    namespace_sql = u'AND i%(idx)d.namespace = %%%%s' % { 'idx':idx }
+                else:
+                    namespace_sql = u''
+                joins.append(u"INNER JOIN %%(words_table_name)s AS w%(idx)d ON (w%(idx)d.word = %%%%s) INNER JOIN %%(index_table_name)s AS i%(idx)d ON (w%(idx)d.id = i%(idx)d.word_id AND i%(idx)d.content_type_id = %%(content_type_id)s AND i%(idx)d.object_id = %%(table_name)s.id %(namespace_sql)s)" % { 'idx':idx, 'namespace_sql': namespace_sql })
             else:
-                joins.append("INNER JOIN %%(words_table_name)s AS w%(idx)d ON (w%(idx)d.word LIKE %%%%s) INNER JOIN %%(index_table_name)s AS i%(idx)d ON (w%(idx)d.id = i%(idx)d.word_id AND i%(idx)d.content_type_id = %%(content_type_id)s AND i%(idx)d.object_id = %%(table_name)s.id)" % { 'idx':idx })
                 joins_params.append("'%s%%%%'" % word.replace("'", "''"))
+                if self.namespace is not None:
+                    joins_params.append(u"'%s'" % self.namespace.replace("'", "''"))
+                    namespace_sql = u'AND i%(idx)d.namespace = %%%%s' % { 'idx':idx }
+                else:
+                    namespace_sql = u''
+                joins.append(u"INNER JOIN %%(words_table_name)s AS w%(idx)d ON (w%(idx)d.word LIKE %%%%s) INNER JOIN %%(index_table_name)s AS i%(idx)d ON (w%(idx)d.id = i%(idx)d.word_id AND i%(idx)d.content_type_id = %%(content_type_id)s AND i%(idx)d.object_id = %%(table_name)s.id %(namespace_sql)s)" % { 'idx':idx, 'namespace_sql': namespace_sql })
                 qs.query.distinct = True
             weights.append("i%(idx)d.weight" % { 'idx':idx })
         
@@ -140,7 +165,5 @@ class SearchManager(BaseManager):
 class SearchableModel(BaseModel):
     class Meta:
         abstract = True
-
-    _index = generic.GenericRelation(Index)
 
     objects = SearchManager()

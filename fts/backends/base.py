@@ -29,13 +29,15 @@ class BaseManager(models.Manager):
             self.language_code = translation.get_language().split('-',1)[0].lower()
         
     def __call__(self, query=None, **kwargs):
-        if not query:
+        if query is None:
             return self # template variable resolver expects the object itself (no arguments)
         return self.search(query, **kwargs)
 
     def contribute_to_class(self, cls, name):
         # Instances need to get to us to update their indexes.
-        setattr(cls, '_search_manager', self)
+        search_managers = getattr(cls, '_search_managers', [])
+        search_managers.append(self)
+        setattr(cls, '_search_managers', search_managers)
         super(BaseManager, self).contribute_to_class(cls, name)
 
         if not self.fields:
@@ -46,7 +48,7 @@ class BaseManager(models.Manager):
             for field in self.fields:
                 self._fields[field] = self.default_weight
         else:
-            self._fields = fields
+            self._fields = self.fields
     
     def _update_index(self, pk):
         raise NotImplementedError
@@ -85,11 +87,22 @@ class BaseModel(models.Model):
         """
         Update the index.
         """
-        if hasattr(self, '_search_manager'):
-            self._search_manager._update_index(pk=self.pk)
+        for sm in getattr(self.__class__, '_search_managers', []):
+            sm._update_index(pk=self.pk)
+
+    @classmethod
+    @transaction.commit_on_success
+    def update_indexes(cls):
+        """
+        Update the index.
+        """
+        for sm in getattr(cls, '_search_managers', []):
+            sm._update_index(None)
     
     @transaction.commit_on_success
     def save(self, *args, **kwargs):
+        update_index = kwargs.pop('update_index', True)
         super(BaseModel, self).save(*args, **kwargs)
-        if getattr(self, '_auto_reindex', True):
-            self._search_manager._update_index(pk=self.pk)
+        if update_index and getattr(self, '_auto_reindex', True):
+            for sm in getattr(self.__class__, '_search_managers', []):
+                sm._update_index(pk=self.pk)
