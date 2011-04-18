@@ -6,6 +6,8 @@ from django.db.models.fields import FieldDoesNotExist
 from fts.backends.base import InvalidFtsBackendError
 from fts.backends.base import BaseClass, BaseModel, BaseManager
 
+qn = connection.ops.quote_name
+
 from django.db import models
 LANGUAGES = {
     '' : 'simple',
@@ -33,7 +35,7 @@ class VectorField(models.Field):
         kwargs['serialize'] = False
         super(VectorField, self).__init__(*args, **kwargs)
     
-    def db_type(self):
+    def db_type(self, connection=None):
         return 'tsvector'
 
 class SearchClass(BaseClass):
@@ -74,7 +76,7 @@ class SearchManager(BaseManager):
         """
         try:
             f = self.model._meta.get_field(field)
-            return ("setweight(to_tsvector('%s', coalesce(\"%s\",'')), '%s')" % (self.language, f.column, weight), [])
+            return ("setweight(to_tsvector('%s', coalesce(%s,'')), '%s')" % (self.language, qn(f.column), weight), [])
         except FieldDoesNotExist:
             return ("setweight(to_tsvector('%s', %%s), '%s')" % (self.language, weight), [field])
 
@@ -92,11 +94,11 @@ class SearchManager(BaseManager):
         # If one or more pks are specified, tack a WHERE clause onto the SQL.
         if pk is not None:
             if isinstance(pk, (list,tuple)):
-                ids = ','.join([int(v) for v in pk])
-                where = ' WHERE "%s" IN (%s)' % (self.model._meta.pk.column, ids)
+                ids = ','.join(str(v) for v in pk)
+                where = ' WHERE %s IN (%s)' % (qn(self.model._meta.pk.column), ids)
             else:
-                where = ' WHERE "%s" = %d' % (self.model._meta.pk.column, pk)
-        sql = 'UPDATE "%s" SET "%s" = %s%s' % (self.model._meta.db_table, self.vector_field.column, vector_sql, where)
+                where = ' WHERE %s = %d' % (qn(self.model._meta.pk.column), pk)
+        sql = 'UPDATE %s SET %s = %s%s' % (qn(self.model._meta.db_table), qn(self.vector_field.column), vector_sql, where)
         cursor = connection.cursor()
         cursor.execute(sql, tuple(params))
         transaction.set_dirty()
@@ -127,12 +129,14 @@ class SearchManager(BaseManager):
                 clauses.append(v[0])
                 params.extend(v[1])
             vector_sql = ' || '.join(clauses)
-            sql = 'UPDATE "%s" SET "%s" = %s WHERE "%s" = %d' % (self.model._meta.db_table, self.vector_field.column, vector_sql, self.model._meta.pk.column, item.pk)
+            sql = 'UPDATE %s SET %s = %s WHERE %s = %d' % (qn(self.model._meta.db_table), qn(self.vector_field.column), vector_sql, qn(self.model._meta.pk.column), item.pk)
             cursor = connection.cursor()
             cursor.execute(sql, tuple(params))
         transaction.set_dirty()
     
+    @transaction.commit_on_success
     def _update_index(self, pk=None):
+        index_walking = False
         for field, weight in self._fields.items():
             if callable(field) or '__' in field:
                 index_walking = True
@@ -156,12 +160,12 @@ class SearchManager(BaseManager):
         qs = self.get_query_set()
         
         ts_query = "plainto_tsquery('%s','%s')" % (self.language, unicode(query).replace("'", "''"))
-        where = '"%s"."%s" @@ %s' % (self.model._meta.db_table, self.vector_field.column, ts_query)
+        where = '%s.%s @@ %s' % (qn(self.model._meta.db_table), qn(self.vector_field.column), ts_query)
         
         select = {}
         order = []
         if rank_field is not None:
-            select[rank_field] = 'ts_rank("%s"."%s", %s, %d)' % (self.model._meta.db_table, self.vector_field.column, ts_query, rank_normalization)
+            select[rank_field] = 'ts_rank(%s.%s, %s, %d)' % (qn(self.model._meta.db_table), qn(self.vector_field.column), ts_query, rank_normalization)
             order = ['-%s' % rank_field]
         
         return qs.extra(select=select, where=[where], order_by=order)
