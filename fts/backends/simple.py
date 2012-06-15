@@ -9,8 +9,6 @@ from django.db import connection, transaction
 from django.db.models import Q, Max
 from django.core.cache import cache
 
-from snippets.decorators import commit_on_success_unless_managed
-
 from fts.backends.base import BaseClass, BaseModel, BaseManager
 from fts.models import Word, Index, Namespace
 
@@ -102,9 +100,9 @@ class SearchManager(BaseManager):
         # Get stemmed set of words not in the list of stop words and with a minimum of a minlen length
         return set( stem(word) for word in words if word and word not in FTS_STOPWORDS[self.language_code] and len(word) > minlen )
         
-    @commit_on_success_unless_managed
     def _update_index(self, pk, dumping=None):
         """
+            Recommended to call this in a separate transaction
             Index Update (Live or Dumping)
             For Dumping update (recommended method):
                 dumping = {}  # use to pass and keep context for multiple calls
