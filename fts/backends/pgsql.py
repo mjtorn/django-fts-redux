@@ -172,3 +172,10 @@ class SearchableModel(BaseModel):
     search_index = VectorField()
 
     objects = SearchManager()
+
+try:
+    from south.modelsinspector import add_introspection_rules
+    add_introspection_rules([], ["^fts\.backends\.pgsql\.VectorField"])
+except ImportError:
+    pass
+
