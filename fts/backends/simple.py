@@ -187,7 +187,7 @@ class SearchManager(BaseManager):
                             iw = c['IW'][word] = c['widx']
                             c['widx'] += 1
                         else:
-                        iw = Word.objects.get_or_create(word=word)[0]
+                            iw = Word.objects.get_or_create(word=word)[0]
                             c['IW'][word] = iw
                     if ord(weight) < ord(item_words.get(iw, 'Z')):
                         item_words[iw] = weight
