@@ -158,7 +158,7 @@ class SearchManager(BaseManager):
         qs = self.get_query_set()
         
         func_name = '%sto_tsquery' % (query_type if query_type else '')
-        ts_query = "%s('%s','%s')" % (func_name, self.language, unicode(query).replace("'", "''"))
+        ts_query = "%s('%s','%s')" % (func_name, self.language, query.replace("'", "''"))
         where = '%s.%s @@ %s' % (qn(self.model._meta.db_table), qn(self.vector_field.column), ts_query)
         
         select = {}
