@@ -98,11 +98,4 @@ class BaseModel(models.Model):
         """
         for sm in getattr(cls, '_search_managers', []):
             sm._update_index(None)
-    
-    @transaction.commit_on_success
-    def save(self, *args, **kwargs):
-        update_index = kwargs.pop('update_index', True)
-        super(BaseModel, self).save(*args, **kwargs)
-        if update_index and getattr(self, '_auto_reindex', True):
-            for sm in getattr(self.__class__, '_search_managers', []):
-                sm._update_index(pk=self.pk)
+
