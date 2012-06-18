@@ -141,12 +141,15 @@ class SearchManager(BaseManager):
         else:
             self._update_index_update(pk)
     
-    def _search(self, query, **kwargs):
+    def _search(self, query, query_type='plain', **kwargs):
         """
         Returns a queryset after having applied the full-text search query. If rank_field
         is specified, it is the name of the field that will be put on each returned instance.
         When specifying a rank_field, the results will automatically be ordered by -rank_field.
-        
+
+        query_type='' specifies the use of to_tsquery. The query_type is prefixed to ts_query.
+        Also None can be used.
+
         For possible rank_normalization values, refer to:
         http://www.postgresql.org/docs/8.3/static/textsearch-controls.html#TEXTSEARCH-RANKING
         """
@@ -154,7 +157,8 @@ class SearchManager(BaseManager):
         rank_normalization = kwargs.get('rank_normalization', 32)
         qs = self.get_query_set()
         
-        ts_query = "plainto_tsquery('%s','%s')" % (self.language, unicode(query).replace("'", "''"))
+        func_name = '%sto_tsquery' % (query_type if query_type else '')
+        ts_query = "%s('%s','%s')" % (func_name, self.language, unicode(query).replace("'", "''"))
         where = '%s.%s @@ %s' % (qn(self.model._meta.db_table), qn(self.vector_field.column), ts_query)
         
         select = {}
