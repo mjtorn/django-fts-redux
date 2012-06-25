@@ -1,3 +1,5 @@
+# vim: tabstop=4 expandtab autoindent shiftwidth=4 fileencoding=utf-8
+
 """
 Based entirely on Django's own ``setup.py``.
 """
@@ -70,3 +72,6 @@ setup(
                    'Programming Language :: Python',
                    'Topic :: Utilities'],
 )
+
+# EOF
+
