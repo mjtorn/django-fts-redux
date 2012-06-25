@@ -48,7 +48,7 @@ for dirpath, dirnames, filenames in os.walk(fts_dir):
         data_files.append([dirpath, [os.path.join(dirpath, f) for f in filenames]])
 
 # Dynamically calculate the version based on fts.VERSION
-version_tuple = (0, 1, 'pre')
+version_tuple = (0, 1, 'pre2')
 if version_tuple[2] is not None:
     version = "%d.%d_%s" % version_tuple
 else:
