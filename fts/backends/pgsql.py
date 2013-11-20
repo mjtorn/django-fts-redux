@@ -34,7 +34,7 @@ class VectorField(models.Field):
         kwargs['editable'] = False
         kwargs['serialize'] = False
         super(VectorField, self).__init__(*args, **kwargs)
-    
+
     def db_type(self, connection=None):
         return 'tsvector'
 
@@ -54,17 +54,17 @@ class SearchManager(BaseManager):
         """
         if self._vector_field_cache is not None:
             return self._vector_field_cache
-        
+
         vectors = [f for f in self.model._meta.fields if isinstance(f, VectorField)]
-        
+
         if len(vectors) != 1:
             raise ValueError('There must be exactly 1 VectorField defined for the %s model.' % self.model._meta.object_name)
-            
+
         self._vector_field_cache = vectors[0]
-        
+
         return self._vector_field_cache
     vector_field = property(_vector_field)
-    
+
     def _vector_sql(self, field, weight):
         """
         Returns the SQL used to build a tsvector from the given (django) field name.
@@ -84,7 +84,7 @@ class SearchManager(BaseManager):
             clauses.append(v[0])
             params.extend(v[1])
         vector_sql = ' || '.join(clauses)
-        
+
         where = ''
         # If one or more pks are specified, tack a WHERE clause onto the SQL.
         if pk is not None:
@@ -106,7 +106,7 @@ class SearchManager(BaseManager):
                 items = self.filter(pk=pk)
         else:
             items = self.all()
-        
+
         IW = {}
         for item in items:
             clauses = []
@@ -128,7 +128,7 @@ class SearchManager(BaseManager):
             cursor = connection.cursor()
             cursor.execute(sql, tuple(params))
         transaction.set_dirty()
-    
+
     @transaction.commit_on_success
     def _update_index(self, pk=None):
         index_walking = False
@@ -140,7 +140,7 @@ class SearchManager(BaseManager):
             self._update_index_walking(pk)
         else:
             self._update_index_update(pk)
-    
+
     def _search(self, query, query_type='plain', **kwargs):
         """
         Returns a queryset after having applied the full-text search query. If rank_field
@@ -156,18 +156,55 @@ class SearchManager(BaseManager):
         rank_field = kwargs.get('rank_field')
         rank_normalization = kwargs.get('rank_normalization', 32)
         qs = self.get_query_set()
-        
+
         func_name = '%sto_tsquery' % (query_type if query_type else '')
         ts_query = "%s('%s', '%s')" % (func_name, self.language, query.replace("'", "''"))
         where = '%s.%s @@ %s' % (qn(self.model._meta.db_table), qn(self.vector_field.column), ts_query)
-        
+
         select = {}
         order = []
         if rank_field is not None:
             select[rank_field] = 'ts_rank(%s.%s, %s, %d)' % (qn(self.model._meta.db_table), qn(self.vector_field.column), ts_query, rank_normalization)
             order = ['-%s' % rank_field]
-        
+
         return qs.extra(select=select, where=[where], order_by=order)
+
+    def get_create_trigger(self):
+        """Get the query required to create a trigger that updates the index
+        """
+
+        # Unweighted version, all the weights are the same
+        if len(set(self._fields.values())) == 1:
+            cols = ', '.join(["'%s'" % k for k in self._fields.keys()])
+            q = "CREATE TRIGGER %s_tsvectorupdate_trigger BEFORE INSERT OR UPDATE ON %s FOR EACH ROW EXECUTE PROCEDURE tsvector_update_trigger(%s, '%s', %s);"
+            q = q % (self.model._meta.db_table, self.model._meta.db_table, self.vector_field.column, self.language, cols)
+        else:
+            q = """CREATE OR REPLACE FUNCTION %(table)s_tsvectorupdate_function() RETURNS trigger AS $$
+            BEGIN
+                NEW.%(vector_field)s :=
+            """
+            items = self._fields.items()
+            items.sort(key=lambda i: i[1])
+            f, w = items[0]
+            f = self.model._meta.get_field(f)
+            clause = "setweight(to_tsvector('%s', coalesce(new.%s,'')), '%s')" % (self.language, qn(f.column), w)
+            q += "%s\n" % clause
+            if len(items) > 1:
+                for f, w in items[1:]:
+                    f = self.model._meta.get_field(f)
+                    clause = "|| setweight(to_tsvector('%s', coalesce(new.%s,'')), '%s')" % (self.language, qn(f.column), w)
+                    q += "%s\n" % clause
+            q += """;
+                RETURN NEW;
+            END
+            $$ LANGUAGE plpgsql;
+
+            CREATE TRIGGER %(table)s_tsvectorupdate_trigger BEFORE INSERT OR UPDATE ON %(table)s FOR EACH ROW EXECUTE PROCEDURE %(table)s_tsvectorupdate_function();
+            """
+
+            q = q % {'table': self.model._meta.db_table, 'vector_field': self.vector_field.column}
+        return q
+
 
 class SearchableModel(BaseModel):
     class Meta:
