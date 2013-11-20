@@ -6,6 +6,8 @@ from django.conf import settings
 
 from django.core.exceptions import ImproperlyConfigured
 
+VALID_WEIGHTS = ('A', 'B', 'C', 'D')
+
 class InvalidFtsBackendError(ImproperlyConfigured):
     pass
 
@@ -21,13 +23,13 @@ class BaseManager(models.Manager):
         super(BaseManager, self).__init__()
         self.fields = kwargs.get('fields')
         self.default_weight = kwargs.get('default_weight')
-        if self.default_weight not in ['A', 'B', 'C', 'D']:
+        if self.default_weight not in VALID_WEIGHTS:
             self.default_weight = 'A'
         self.language_code = kwargs.get('language_code')
         if not self.language_code:
             from django.utils import translation
             self.language_code = translation.get_language().split('-',1)[0].lower()
-        
+
     def __call__(self, query=None, **kwargs):
         if query is None:
             return self # template variable resolver expects the object itself (no arguments)
