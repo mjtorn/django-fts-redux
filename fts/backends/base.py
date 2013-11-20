@@ -44,30 +44,36 @@ class BaseManager(models.Manager):
 
         if not self.fields:
             self.fields = self._find_text_fields()
-        
+
         if isinstance(self.fields, (list, tuple)):
             self._fields = {}
             for field in self.fields:
-                self._fields[field] = self.default_weight
+                if isinstance(field, (list, tuple)):
+                    field, weight = field
+                    if not weight in VALID_WEIGHTS:
+                        weight = 'A'
+                else:
+                    weight = self.default_weight
+                self._fields[field] = weight
         else:
             self._fields = self.fields
-    
+
     def _update_index(self, pk):
         raise NotImplementedError
 
     def _search(self, query, **kwargs):
         raise NotImplementedError
-    
+
     @transaction.commit_on_success
     def update_index(self, pk=None):
         """
         Updates the full-text index for one, many, or all instances of this manager's model.
         """
         return self._update_index(pk)
-    
+
     def search(self, query, **kwargs):
         return self._search(query, **kwargs)
-    
+
     def _find_text_fields(self):
         """
         Return the names of all CharField and TextField fields defined for this manager's model.
@@ -83,7 +89,7 @@ class BaseModel(models.Model):
     """
     class Meta:
         abstract = True
-    
+
     @transaction.commit_on_success
     def update_index(self):
         """
