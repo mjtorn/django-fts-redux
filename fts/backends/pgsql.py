@@ -155,19 +155,24 @@ class SearchManager(BaseManager):
         """
         rank_field = kwargs.get('rank_field')
         rank_normalization = kwargs.get('rank_normalization', 32)
+        rank_cutoff = kwargs.get('rank_cutoff')
         qs = self.get_query_set()
 
         func_name = '%sto_tsquery' % (query_type if query_type else '')
         ts_query = "%s('%s', '%s')" % (func_name, self.language, query.replace("'", "''"))
-        where = '%s.%s @@ %s' % (qn(self.model._meta.db_table), qn(self.vector_field.column), ts_query)
+        where = ['%s.%s @@ %s' % (qn(self.model._meta.db_table), qn(self.vector_field.column), ts_query)]
 
         select = {}
         order = []
         if rank_field is not None:
             select[rank_field] = 'ts_rank(%s.%s, %s, %d)' % (qn(self.model._meta.db_table), qn(self.vector_field.column), ts_query, rank_normalization)
             order = ['-%s' % rank_field]
+            if rank_cutoff is not None:
+                cutoff_where = '%s > %s' % (select[rank_field], rank_cutoff)
+                where.append(cutoff_where)
 
-        return qs.extra(select=select, where=[where], order_by=order)
+        qs = qs.extra(select=select, where=where, order_by=order)
+        return qs
 
     def get_create_trigger(self):
         """Get the query required to create a trigger that updates the index
